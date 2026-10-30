@@ -28,8 +28,18 @@ if (-not (Test-Path -LiteralPath $Source)) {
     exit 1
 }
 
+$srcRoot = (Resolve-Path -LiteralPath $Source).ProviderPath.TrimEnd('\')
+$created = -not (Test-Path -LiteralPath $Dest)
 New-Item -ItemType Directory -Path $Dest -Force | Out-Null
+$destRoot = (Resolve-Path -LiteralPath $Dest).ProviderPath.TrimEnd('\')
 $log = Join-Path $Dest "remux-errors.log"
+
+# A destination inside the source would be scanned too, nesting copies deeper on every run
+if ("$destRoot\".StartsWith("$srcRoot\", [StringComparison]::OrdinalIgnoreCase)) {
+    if ($created) { Remove-Item -LiteralPath $destRoot }
+    Write-Host "Destination must not be the source folder or inside it: $destRoot" -ForegroundColor Red
+    exit 1
+}
 
 # Start each run clean: fresh error log, and remove unfinished temp files from an interrupted run
 Remove-Item -LiteralPath $log -ErrorAction SilentlyContinue
@@ -42,13 +52,18 @@ function Copy-Timestamp($from, $toPath) {
     $item.LastWriteTime = $from.LastWriteTime
 }
 
-$srcRoot = (Resolve-Path -LiteralPath $Source).Path.TrimEnd('\')
-$files = Get-ChildItem -LiteralPath $srcRoot -Recurse -File |
+$files = Get-ChildItem -LiteralPath $srcRoot -Recurse -File -ErrorVariable scanErrors |
     Where-Object { $_.Extension -ieq ".mov" -or $_.Extension -ieq ".mp4" }
 
 $total = $files.Count
 $i = 0; $remuxed = 0; $copied = 0; $skipped = 0; $renamed = 0; $failed = 0
 Write-Host "Found $total .mov/.mp4 files in $srcRoot"
+if ($scanErrors) {
+    # Process what was found anyway: a re-run picks up the rest once the folders are readable
+    Add-Content -LiteralPath $log -Value "scan failed: some folders in $srcRoot could not be read"
+    Write-Host "Some folders could not be read (see errors above), their videos are not included" -ForegroundColor Red
+    $failed++
+}
 
 foreach ($f in $files) {
     $i++

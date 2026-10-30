@@ -1,6 +1,6 @@
 # remux-iphone-videos
 
-A PowerShell script that makes iPhone videos play properly in **Plex**.
+A script that makes iPhone videos play properly in **Plex**: PowerShell for Windows, bash for macOS and Linux.
 
 Recent iPhones record video with an extra **APAC** (Apple Positional Audio Codec, spatial audio) track next to the normal AAC stereo track. Plex does not understand APAC: on clients such as Plex for iOS/iPadOS this can cause very long start-up delays, video not showing at all, audio appearing only after minutes, or downloads failing with *"transcoding failed"*, even though Plex reports Direct Play for both video and audio.
 
@@ -13,7 +13,7 @@ This script removes the APAC track by **remuxing** the file. Video and AAC audio
   - files **with APAC** are remuxed into the same container (`.MOV` → `.MOV`, `.mp4` → `.mp4`), keeping the first video track and the first audio track (AAC stereo);
   - files **without APAC** are copied as is.
 - Keeps file names and extensions exactly as in the source, including letter case, and mirrors the folder structure in the destination.
-- Preserves the iPhone metadata (capture date, location, etc.) and the original file timestamps.
+- Preserves the iPhone metadata (capture date, location, etc.) and the original file timestamps (on macOS and Linux only the modification time, as the creation time can't be set there).
 - Adds the `hvc1` HEVC tag preferred by Apple devices and moves the index to the start of the file (`faststart`) so network playback starts immediately.
 - **Never modifies the originals.**
 
@@ -27,16 +27,27 @@ Note that the script only looks at file names: if you replace a source file with
 
 ## Requirements
 
-- Windows with PowerShell 5.1 or newer
-- [FFmpeg](https://ffmpeg.org/) (`ffmpeg` and `ffprobe` in `PATH`). A recent build is needed to recognize the APAC track. On Windows the easiest way is:
+- Windows with PowerShell 5.1 or newer, or macOS / Linux with bash (the bash 3.2 that ships with macOS is fine)
+- [FFmpeg](https://ffmpeg.org/) (`ffmpeg` and `ffprobe` in `PATH`). A recent build is needed to recognize the APAC track.
+  - Windows:
 
-  ```powershell
-  winget install Gyan.FFmpeg
-  ```
+    ```powershell
+    winget install Gyan.FFmpeg
+    ```
 
-  Close and reopen PowerShell after installing.
+    Close and reopen PowerShell after installing.
+
+  - macOS, with [Homebrew](https://brew.sh/):
+
+    ```bash
+    brew install ffmpeg
+    ```
+
+  - Linux: your distribution's `ffmpeg` package, or a static build from [ffmpeg.org](https://ffmpeg.org/download.html) if that package is old.
 
 ## Usage
+
+### Windows
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\remux-iphone-videos.ps1 -Source "D:\Videos\iPhone" -Dest "D:\Videos\iPhone (Plex)"
@@ -53,12 +64,24 @@ The destination can be a network share, e.g. a NAS used by Plex:
 powershell -ExecutionPolicy Bypass -File .\remux-iphone-videos.ps1 -Source "D:\Videos\iPhone" -Dest "\\NAS\Videos\iPhone"
 ```
 
+### macOS and Linux
+
+```bash
+./remux-iphone-videos.sh "$HOME/Videos/iPhone" "$HOME/Videos/iPhone (Plex)"
+```
+
+The first argument is the folder with the original videos, the second is the folder for the processed copies (created if missing). The destination can be a mounted network share, e.g. `/Volumes/Videos/iPhone` on macOS. macOS `._*` metadata files are skipped.
+
+If the script isn't executable after downloading, run it as `bash remux-iphone-videos.sh ...` or make it executable with `chmod +x remux-iphone-videos.sh`.
+
+The destination must not be the source folder or inside it, otherwise every run would pick up its own output again.
+
 At the end the script prints a summary: how many files were remuxed, copied, skipped and failed.
 
 ## Before you start
 
 - The destination needs about as much free space as the source videos take.
-- Disable sleep in Windows power settings for long runs. Running background processes do not prevent Windows from going to sleep.
+- Disable sleep in Windows power settings for long runs. Running background processes do not prevent Windows from going to sleep. On macOS, start the script with `caffeinate -i` in front to keep the Mac awake while it runs.
 
 ## Notes
 

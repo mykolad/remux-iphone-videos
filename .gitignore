@@ -1,3 +1,6 @@
+# Local test videos
+test/
+
 # Test output
 *.part
 remux-errors.log
