@@ -1,19 +1,24 @@
 #!/usr/bin/env bash
 # Prepare iPhone videos for Plex (macOS / Linux version of remux-iphone-videos.ps1).
-# - Files WITH an APAC (spatial audio) track: remux, keep HEVC video + AAC stereo, drop APAC.
-#   No re-encoding: quality stays bit-identical.
-# - Files WITHOUT APAC: copied as is.
+# - Files WITH an APAC (spatial audio) track or Dolby Vision: remux, keep HEVC video + AAC stereo,
+#   drop APAC, the Dolby Vision layer and the metadata tracks. No re-encoding: quality stays bit-identical.
+# - Other files: copied as is.
 # File names and extensions are kept exactly as in the source (.MOV stays .MOV).
 # Originals are never modified.
 #
 # Usage:
 #   ./remux-iphone-videos.sh "$HOME/Videos/iPhone" "$HOME/Videos/iPhone (Plex)"
+#   ./remux-iphone-videos.sh --recheck "$HOME/Videos/iPhone" "$HOME/Videos/iPhone (Plex)"
 #
 # Safe to re-run: files that already exist in the destination are skipped.
+# With --recheck, existing files are inspected and redone if they still have APAC or Dolby Vision
+# (e.g. copied as is by an older version of this script). Slower: every existing file is probed.
 # Works with the bash 3.2 that ships with macOS.
 
+recheck=''
+if [ "$1" = "--recheck" ]; then recheck=1; shift; fi
 if [ $# -ne 2 ]; then
-    echo "Usage: $0 SOURCE DEST" >&2
+    echo "Usage: $0 [--recheck] SOURCE DEST" >&2
     exit 1
 fi
 
@@ -65,9 +70,20 @@ while IFS= read -r -d '' f; do
 done < "$list"
 rm -f "$list"
 
+# Stream list of a file: codec, tag and side data (such as the Dolby Vision record) per stream
+probe() {
+    ffprobe -v error -show_entries stream=codec_name,codec_tag_string:stream_side_data=side_data_type -of csv=p=0 "$1" </dev/null
+}
+
+# Plex struggles with APAC spatial audio and with iPhone Dolby Vision files (long start, no video)
+needs_remux() {
+    printf '%s\n' "$1" | grep -qE 'apac|DOVI'
+}
+
 total=${#files[@]}
-i=0; remuxed=0; copied=0; skipped=0; failed=0
+i=0; remuxed=0; replaced=0; copied=0; skipped=0; failed=0
 echo "Found $total .mov/.mp4 files in $src_root"
+if [ -n "$recheck" ]; then echo "Rechecking files that already exist in $dest, this takes a while"; fi
 if [ -z "$scan_ok" ]; then
     # Process what was found anyway: a re-run picks up the rest once the folders are readable
     echo "scan failed: some folders in $src_root could not be read" >> "$log"
@@ -81,26 +97,39 @@ for f in "${files[@]}"; do
     out="$dest/$rel"          # same name and extension as the original
     mkdir -p "$(dirname "$out")"
 
-    # Already done?
-    if [ -e "$out" ]; then
-        skipped=$((skipped + 1))
+    # A folder with the video's name would swallow the file on the final mv
+    if [ -d "$out" ]; then
+        echo "destination is a folder: $out" >> "$log"
+        echo "[$i/$total] $rel  ${red}FAILED (destination is a folder)${reset}"
+        failed=$((failed + 1))
         continue
+    fi
+
+    # Already done? With --recheck, redo it if it still needs remuxing (or can't be read)
+    replace=''
+    if [ -e "$out" ]; then
+        if [ -z "$recheck" ] || { existing=$(probe "$out") && ! needs_remux "$existing"; }; then
+            skipped=$((skipped + 1))
+            continue
+        fi
+        replace=' (replacing)'
     fi
 
     tmp="$out.part"
 
-    if ! streams=$(ffprobe -v error -show_entries stream=codec_name,codec_tag_string -of csv=p=0 "$f" </dev/null); then
+    if ! streams=$(probe "$f"); then
         echo "ffprobe failed: $f" >> "$log"
         echo "[$i/$total] $rel  ${red}FAILED (ffprobe)${reset}"
         failed=$((failed + 1))
         continue
     fi
 
-    if ! printf '%s\n' "$streams" | grep -q apac; then
-        # No spatial audio: plain copy
-        echo "[$i/$total] copy:  $rel"
+    if ! needs_remux "$streams"; then
+        # Nothing Plex has trouble with: plain copy
+        echo "[$i/$total] copy:  $rel$replace"
         if cp "$f" "$tmp" && touch -r "$f" "$tmp" && mv "$tmp" "$out"; then
             copied=$((copied + 1))
+            if [ -n "$replace" ]; then replaced=$((replaced + 1)); fi
         else
             rm -f "$tmp"
             echo "copy failed: $f" >> "$log"
@@ -110,8 +139,8 @@ for f in "${files[@]}"; do
         continue
     fi
 
-    # Has APAC: remux into the same container type as the original
-    echo "[$i/$total] remux: $rel"
+    # Has APAC or Dolby Vision: remux into the same container type as the original
+    echo "[$i/$total] remux: $rel$replace"
     case "$f" in
         *.[mM][pP]4) fmt=mp4 ;;
         *)           fmt=mov ;;
@@ -125,6 +154,7 @@ for f in "${files[@]}"; do
         -f "$fmt" "$tmp" &&
         touch -c -r "$f" "$tmp" && mv "$tmp" "$out"; then
         remuxed=$((remuxed + 1))
+        if [ -n "$replace" ]; then replaced=$((replaced + 1)); fi
     else
         rm -f "$tmp"
         echo "remux failed: $f" >> "$log"
@@ -134,7 +164,7 @@ for f in "${files[@]}"; do
 done
 
 echo ""
-echo "${green}Done. Remuxed: $remuxed, copied as is: $copied, already existed: $skipped, failed: $failed${reset}"
+echo "${green}Done. Remuxed: $remuxed, copied as is: $copied, of these replacing older copies: $replaced, already existed: $skipped, failed: $failed${reset}"
 if [ "$failed" -gt 0 ]; then
     echo "${yellow}Failed files are listed in: $log${reset}"
     exit 1

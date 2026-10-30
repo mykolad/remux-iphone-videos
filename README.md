@@ -4,14 +4,16 @@ A script that makes iPhone videos play properly in **Plex**: PowerShell for Wind
 
 Recent iPhones record video with an extra **APAC** (Apple Positional Audio Codec, spatial audio) track next to the normal AAC stereo track. Plex does not understand APAC: on clients such as Plex for iOS/iPadOS this can cause very long start-up delays, video not showing at all, audio appearing only after minutes, or downloads failing with *"transcoding failed"*, even though Plex reports Direct Play for both video and audio.
 
-This script removes the APAC track by **remuxing** the file. Video and AAC audio are copied as is, with **no re-encoding**, so quality stays bit-identical and processing is limited only by disk speed.
+Older iPhones (e.g. iPhone 13 Pro) have no APAC track, but their HDR videos carry a **Dolby Vision** layer, store the file index at the end of the file and add extra metadata tracks. On Plex for iPadOS these show the same symptoms: a long spinner, then playback without video.
+
+This script fixes both by **remuxing** the file: it drops the APAC track, the Dolby Vision layer and the metadata tracks. Video and AAC audio are copied as is, with **no re-encoding**, so quality stays bit-identical and processing is limited only by disk speed.
 
 ## What it does
 
 - Scans the source folder (including subfolders) for `.mov` and `.mp4` files.
 - Checks every file with `ffprobe`:
-  - files **with APAC** are remuxed into the same container (`.MOV` → `.MOV`, `.mp4` → `.mp4`), keeping the first video track and the first audio track (AAC stereo);
-  - files **without APAC** are copied as is.
+  - files **with APAC or Dolby Vision** are remuxed into the same container (`.MOV` → `.MOV`, `.mp4` → `.mp4`), keeping the first video track and the first audio track (AAC stereo);
+  - all other files (e.g. SDR H.264 videos) are copied as is.
 - Keeps file names and extensions exactly as in the source, including letter case, and mirrors the folder structure in the destination.
 - Preserves the iPhone metadata (capture date, location, etc.) and the original file timestamps (on macOS and Linux only the modification time, as the creation time can't be set there).
 - Adds the `hvc1` HEVC tag preferred by Apple devices and moves the index to the start of the file (`faststart`) so network playback starts immediately.
@@ -24,6 +26,20 @@ This script removes the APAC track by **remuxing** the file. Video and AAC audio
 - The error log `remux-errors.log` in the destination folder is recreated on each run and lists only files that failed in the latest run.
 
 Note that the script only looks at file names: if you replace a source file with a different file of the same name, delete the old copy in the destination to have it processed again. The script never deletes anything from the destination.
+
+### Fixing copies made by an older version
+
+Older versions of the script remuxed only files with APAC and copied Dolby Vision videos as is. To fix those copies, run the script once with `-Recheck` (Windows) or `--recheck` (macOS/Linux):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\remux-iphone-videos.ps1 -Source "D:\Videos\iPhone" -Dest "\\NAS\Videos\iPhone" -Recheck
+```
+
+```bash
+./remux-iphone-videos.sh --recheck "$HOME/Videos/iPhone" "/Volumes/Videos/iPhone"
+```
+
+Every file that already exists in the destination is then inspected with `ffprobe`. Files that still have APAC or Dolby Vision, or that can't be read, are processed again from the source and replaced. All others are skipped. This reads the index of every existing file, so over a network it takes a few minutes for a few hundred files. Normal runs don't need it.
 
 ## Requirements
 
