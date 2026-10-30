@@ -1,0 +1,9 @@
+# Test output
+*.part
+remux-errors.log
+
+# Editors / OS
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
