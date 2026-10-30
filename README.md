@@ -74,6 +74,8 @@ The first argument is the folder with the original videos, the second is the fol
 
 If the script isn't executable after downloading, run it as `bash remux-iphone-videos.sh ...` or make it executable with `chmod +x remux-iphone-videos.sh`.
 
+The destination must not be the source folder or inside it, otherwise every run would pick up its own output again.
+
 At the end the script prints a summary: how many files were remuxed, copied, skipped and failed.
 
 ## Before you start

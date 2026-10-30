@@ -32,10 +32,20 @@ if [ ! -d "$1" ]; then
     exit 1
 fi
 
+created=''; [ -d "$2" ] || created=1
 mkdir -p "$2" || exit 1
 src_root=$(cd "$1" && pwd -P)
 dest=$(cd "$2" && pwd -P)
 log="$dest/remux-errors.log"
+
+# A destination inside the source would be scanned too, nesting copies deeper on every run
+case "$dest/" in
+    "$src_root"/*)
+        if [ -n "$created" ]; then rmdir "$dest"; fi
+        echo "${red}Destination must not be the source folder or inside it: $dest${reset}" >&2
+        exit 1
+        ;;
+esac
 
 # Start each run clean: fresh error log, and remove unfinished temp files from an interrupted run
 rm -f "$log"

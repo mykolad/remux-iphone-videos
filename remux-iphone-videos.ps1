@@ -28,8 +28,18 @@ if (-not (Test-Path -LiteralPath $Source)) {
     exit 1
 }
 
+$srcRoot = (Resolve-Path -LiteralPath $Source).ProviderPath.TrimEnd('\')
+$created = -not (Test-Path -LiteralPath $Dest)
 New-Item -ItemType Directory -Path $Dest -Force | Out-Null
+$destRoot = (Resolve-Path -LiteralPath $Dest).ProviderPath.TrimEnd('\')
 $log = Join-Path $Dest "remux-errors.log"
+
+# A destination inside the source would be scanned too, nesting copies deeper on every run
+if ("$destRoot\".StartsWith("$srcRoot\", [StringComparison]::OrdinalIgnoreCase)) {
+    if ($created) { Remove-Item -LiteralPath $destRoot }
+    Write-Host "Destination must not be the source folder or inside it: $destRoot" -ForegroundColor Red
+    exit 1
+}
 
 # Start each run clean: fresh error log, and remove unfinished temp files from an interrupted run
 Remove-Item -LiteralPath $log -ErrorAction SilentlyContinue
@@ -42,7 +52,6 @@ function Copy-Timestamp($from, $toPath) {
     $item.LastWriteTime = $from.LastWriteTime
 }
 
-$srcRoot = (Resolve-Path -LiteralPath $Source).Path.TrimEnd('\')
 $files = Get-ChildItem -LiteralPath $srcRoot -Recurse -File |
     Where-Object { $_.Extension -ieq ".mov" -or $_.Extension -ieq ".mp4" }
 
