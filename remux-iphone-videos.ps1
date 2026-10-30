@@ -139,4 +139,7 @@ foreach ($f in $files) {
 
 Write-Host ""
 Write-Host "Done. Remuxed: $remuxed, copied as is: $copied, already existed: $skipped (of them renamed: $renamed), failed: $failed" -ForegroundColor Green
-if ($failed -gt 0) { Write-Host "Failed files are listed in: $log" -ForegroundColor Yellow }
+if ($failed -gt 0) {
+    Write-Host "Failed files are listed in: $log" -ForegroundColor Yellow
+    exit 1
+}
