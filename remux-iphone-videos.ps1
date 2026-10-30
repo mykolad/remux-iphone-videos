@@ -86,6 +86,14 @@ foreach ($f in $files) {
     $outDir = Split-Path $out -Parent
     New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 
+    # A folder with the video's name would swallow the file on the final move
+    if (Test-Path -LiteralPath $out -PathType Container) {
+        Add-Content -LiteralPath $log -Value "destination is a folder: $out"
+        Write-Host "[$i/$total] $rel  FAILED (destination is a folder)" -ForegroundColor Red
+        $failed++
+        continue
+    }
+
     # Already done? (Windows paths are case-insensitive, so look up the real on-disk name)
     # With -Recheck, redo it if it still needs remuxing (or can't be read)
     $replace = ""
@@ -121,8 +129,9 @@ foreach ($f in $files) {
         # Nothing Plex has trouble with: plain copy
         Write-Host "[$i/$total] copy:  $rel$replace"
         try {
-            Copy-Item -LiteralPath $f.FullName -Destination $tmp -Force
-            Move-Item -LiteralPath $tmp -Destination $out -Force
+            # -ErrorAction Stop: copy/move errors (e.g. the old file is open in Plex) must reach the catch
+            Copy-Item -LiteralPath $f.FullName -Destination $tmp -Force -ErrorAction Stop
+            Move-Item -LiteralPath $tmp -Destination $out -Force -ErrorAction Stop
             Copy-Timestamp $f $out
             $copied++
             if ($replace) { $replaced++ }
@@ -146,9 +155,17 @@ foreach ($f in $files) {
         -map_metadata 0 -movflags "+faststart+use_metadata_tags" `
         -f $fmt $tmp
 
-    if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmp)) {
-        Move-Item -LiteralPath $tmp -Destination $out -Force
-        Copy-Timestamp $f $out
+    $ok = $LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $tmp)
+    if ($ok) {
+        try {
+            # Timestamps after the move: Windows gives a replacing file the old file's creation time
+            Move-Item -LiteralPath $tmp -Destination $out -Force -ErrorAction Stop
+            Copy-Timestamp $f $out
+        } catch {
+            $ok = $false
+        }
+    }
+    if ($ok) {
         $remuxed++
         if ($replace) { $replaced++ }
     } else {

@@ -97,6 +97,14 @@ for f in "${files[@]}"; do
     out="$dest/$rel"          # same name and extension as the original
     mkdir -p "$(dirname "$out")"
 
+    # A folder with the video's name would swallow the file on the final mv
+    if [ -d "$out" ]; then
+        echo "destination is a folder: $out" >> "$log"
+        echo "[$i/$total] $rel  ${red}FAILED (destination is a folder)${reset}"
+        failed=$((failed + 1))
+        continue
+    fi
+
     # Already done? With --recheck, redo it if it still needs remuxing (or can't be read)
     replace=''
     if [ -e "$out" ]; then
