@@ -40,8 +40,9 @@ dest=$(CDPATH='' cd -- "$2" && pwd -P) || exit 1
 log="$dest/remux-errors.log"
 
 # A destination inside the source would be scanned too, nesting copies deeper on every run
+src_prefix="${src_root%/}/"    # "/" stays "/", so a root source matches everything
 case "$dest/" in
-    "$src_root"/*)
+    "$src_prefix"*)
         if [ -n "$created" ]; then rmdir "$dest"; fi
         echo "${red}Destination must not be the source folder or inside it: $dest${reset}" >&2
         exit 1
@@ -50,7 +51,8 @@ esac
 
 # Start each run clean: fresh error log, and remove unfinished temp files from an interrupted run
 rm -f "$log"
-find "$dest" -type f -name '*.part' -exec rm -f {} +
+# (! -type d also catches symlinks; rm removes the link itself, never its target)
+find "$dest" -name '*.part' ! -type d -exec rm -f {} +
 
 # Skip "._*" files: macOS metadata companions on non-Mac drives and network shares, not videos.
 # The list goes through a temp file so a failed scan (unreadable folder, lost share) is noticed.
@@ -133,4 +135,7 @@ done
 
 echo ""
 echo "${green}Done. Remuxed: $remuxed, copied as is: $copied, already existed: $skipped, failed: $failed${reset}"
-if [ "$failed" -gt 0 ]; then echo "${yellow}Failed files are listed in: $log${reset}"; fi
+if [ "$failed" -gt 0 ]; then
+    echo "${yellow}Failed files are listed in: $log${reset}"
+    exit 1
+fi
