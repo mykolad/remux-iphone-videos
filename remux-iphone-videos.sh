@@ -34,8 +34,9 @@ fi
 
 created=''; [ -d "$2" ] || created=1
 mkdir -p "$2" || exit 1
-src_root=$(cd "$1" && pwd -P)
-dest=$(cd "$2" && pwd -P)
+# Clear CDPATH, otherwise cd prints the folder and it ends up in the path
+src_root=$(CDPATH='' cd -- "$1" && pwd -P) || exit 1
+dest=$(CDPATH='' cd -- "$2" && pwd -P) || exit 1
 log="$dest/remux-errors.log"
 
 # A destination inside the source would be scanned too, nesting copies deeper on every run
@@ -51,15 +52,26 @@ esac
 rm -f "$log"
 find "$dest" -type f -name '*.part' -exec rm -f {} +
 
-# Skip "._*" files: macOS metadata companions on non-Mac drives and network shares, not videos
+# Skip "._*" files: macOS metadata companions on non-Mac drives and network shares, not videos.
+# The list goes through a temp file so a failed scan (unreadable folder, lost share) is noticed.
+list=$(mktemp) || exit 1
+scan_ok=1
+find "$src_root" -type f \( -iname '*.mov' -o -iname '*.mp4' \) ! -name '._*' -print0 > "$list" || scan_ok=''
 files=()
 while IFS= read -r -d '' f; do
     files+=("$f")
-done < <(find "$src_root" -type f \( -iname '*.mov' -o -iname '*.mp4' \) ! -name '._*' -print0)
+done < "$list"
+rm -f "$list"
 
 total=${#files[@]}
 i=0; remuxed=0; copied=0; skipped=0; failed=0
 echo "Found $total .mov/.mp4 files in $src_root"
+if [ -z "$scan_ok" ]; then
+    # Process what was found anyway: a re-run picks up the rest once the folders are readable
+    echo "scan failed: some folders in $src_root could not be read" >> "$log"
+    echo "${red}Some folders could not be read (see errors above), their videos are not included${reset}"
+    failed=$((failed + 1))
+fi
 
 for f in "${files[@]}"; do
     i=$((i + 1))
